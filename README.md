@@ -1,41 +1,44 @@
-📝 Proje Taslağı: Gümüş Asistan (Akıllı İlaç & Yan Etki Yönetimi)
-🔴 Problem: Ne Çözüyorum?
-Polifarmasi Karmaşası: Yaşlı bireylerin aynı anda çok sayıda ilaç kullanması sonucu hangi ilacın ne işe yaradığını karıştırması.
+# Gümüş Asistan
 
-Gizli Etkileşimler: İlaçların sadece birbirleriyle değil, günlük gıdalar (greyfurt, süt vb.) ve bitkisel takviyelerle (sarı kantaron, kuşburnu vb.) olan kritik etkileşimlerinin bilinmemesi.
+Gümüş Asistan, yaşlı bireyler ve kronik hastalar için geliştirilen yapay zeka destekli bir sağlık yardımcı uygulamasıdır.  
+Streamlit tabanlı arayüz ile ilaç tanıma, gıda-ilaç etkileşim analizi, semptom değerlendirmesi ve ilaç hatırlatıcı yönetimi sağlar.
 
-Teknik Dil Bariyeri: Prospektüslerin yaşlılar için okunamaz derecede küçük puntolu ve anlaşılmaz derecede teknik olması.
+## Kurulum
 
-Semptom Belirsizliği: Ortaya çıkan bir yan etkinin (baş dönmesi, mide ağrısı) hangi ilaçtan kaynaklandığının tespit edilememesi ve doktora doğru raporlanamaması.
+1. Proje klasörüne geçin.
+2. Gerekli paketleri yükleyin:
 
-👥 Kullanıcı: Bu Uygulamayı Kim Kullanacak?
-Birincil Kullanıcı: Düzenli ilaç kullanan, teknolojiyle temel düzeyde etkileşimi olan 60+ yaş bireyler.
+```bash
+pip install -r requirements.txt
+```
 
-İkincil Kullanıcı: Yaşlı ebeveynlerinin sağlık durumunu uzaktan takip etmek isteyen hasta yakınları ve profesyonel bakıcılar.
+## Çalıştırma
 
-🤖 AI'ın Rolü: Yapay Zeka Bu Çözümde Ne Yapıyor?
-Görüntü İşleme (Computer Vision): İlaç kutusunu veya hapın şeklini/rengini fotoğraftan tanıyarak etken maddeyi ve dozajı dijital veriye dönüştürür.
+Uygulamayı başlatmak için:
 
-Doğal Dil İşleme (NLP): * "Midem yanıyor" gibi günlük dildeki şikayetleri anlar ve olasılık skorlaması yaparak ilaca bağlar.
+```bash
+streamlit run app.py
+```
 
-Teknik prospektüsleri "bir eczacı nezaketinde" sadeleştirerek kullanıcıya sesli veya yazılı özetler.
+## Özellikler
 
-Bilgi Grafiği (Knowledge Graph): Tıbbi veri tabanlarını tarayarak ilaç-gıda-takviye üçgenindeki riskli bağları anlık olarak analiz eder.
+- Kullanıcı adı/şifre ile giriş sistemi (SQLite üzerinde saklama)
+- Fotoğraf ile ilaç tanıma (AI destekli analiz)
+- Gıda-ilaç etkileşim kontrolü ve risk seviyesi (yeşil/sarı/kırmızı)
+- Semptom analizi (kesin teşhis vermeyen yönlendirici çıktı)
+- Sonuçları düzenli kartlarda görüntüleme
+- PDF rapor indirme (tarih, ilaç bilgisi, analiz çıktısı)
+- İlaç hatırlatıcı ekleme, listeleme ve silme
+- Tarayıcı bildirimi ile hatırlatma (izin gerekli)
 
-📊 Rakip Durum: Benzer Çözümler ve Farklılaşma
-Rakipler: Medscape, Medisafe, Epocrates.
+## Ekran Görüntüsü
 
-Neden Farklıyız?
+Bu bölüme uygulama ekran görüntülerini ekleyebilirsiniz:
 
-Aktif Denetleme: Mevcut uygulamalar sadece "hatırlatıcı" veya "teknik veri tabanı" iken, bu proje gıda ve bitkisel takviyeleri de kapsayan bir "yaşam tarzı denetçisi" sunar.
+- Giriş ekranı
+- Ana analiz ekranı
+- Hatırlatıcı paneli
+- PDF rapor çıktısı örneği
 
-Semptomdan İlaca Erişim: Rakipler yan etki listeler; bizim AI'mız kullanıcının anlık şikayetinden yola çıkarak olası suçlu ilacı bulur.
-
-Erişilebilirlik: Yaşlı dostu arayüz (büyük ikonlar, sesli asistan) ve teknik dili tamamen ortadan kaldıran "Eczacı Asistanı" kişiliği.
-
-🏆 Başarı Kriteri: Bu Proje Başarılı Olursa Ne Değişecek?
-Hatalı Kullanım Azalacak: Yanlış ilaç veya etkileşimli gıda tüketimine bağlı acil servis ziyaretlerinde düşüş sağlanacak.
-
-Veriye Dayalı Teşhis: Hasta doktora gittiğinde "kendimi kötü hissediyorum" demek yerine, AI tarafından hazırlanmış "son 1 haftalık yan etki ve semptom raporu"nu sunabilecek.
-
-Bağımsız Yaşam: Yaşlı bireyler, ilaç yönetiminde bir başkasına bağımlı kalmadan kendi sağlık süreçlerini güvenle yönetebilecekler.
+> Örnek kullanım:
+> `screenshots/login.png`, `screenshots/dashboard.png`
