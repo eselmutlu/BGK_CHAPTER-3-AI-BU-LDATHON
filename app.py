@@ -1,4 +1,3 @@
-import base64
 import hashlib
 import json
 import os
@@ -7,14 +6,21 @@ from io import BytesIO
 from datetime import datetime
 from typing import Any
 
-import requests
 import streamlit as st
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
 from PIL import Image
-import io
+import base64
+import google.generativeai as genai
 
 load_dotenv()
+
+# Global ilaç hafızası - tüm sekmeler tarafından paylaşılır
+if 'active_drug' not in st.session_state:
+    st.session_state['active_drug'] = ''
+
+if 'manual_drug' not in st.session_state:
+    st.session_state['manual_drug'] = ''
 
 st.set_page_config(page_title="Gumus Asistan", page_icon="💊", layout="wide")
 
@@ -426,6 +432,113 @@ def notify_browser(title: str, body: str) -> None:
     )
 
 
+def init_conversation_memory() -> None:
+    if "memory_history" not in st.session_state:
+        st.session_state.memory_history = []
+    if "remembered_medications" not in st.session_state:
+        st.session_state.remembered_medications = ""
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+    # Global ilaç bilgisi - tüm sekmeler tarafından paylaşılır
+    if "current_drug" not in st.session_state:
+        st.session_state.current_drug = st.session_state.get("remembered_medications", "")
+    if "shared_drug" not in st.session_state:
+        st.session_state.shared_drug = ""
+    if "drug_source" not in st.session_state:
+        st.session_state.drug_source = ""
+    if "manual_drug" not in st.session_state:
+        st.session_state.manual_drug = ""
+
+
+def add_memory_entry(kind: str, content: str) -> None:
+    history = st.session_state.memory_history
+    history.append(
+        {
+            "ts": datetime.utcnow().isoformat(),
+            "kind": kind,
+            "content": content.strip(),
+        }
+    )
+    # Keep only recent context to avoid oversized prompts.
+    st.session_state.memory_history = history[-12:]
+
+
+def format_memory_context() -> str:
+    history = st.session_state.get("memory_history", [])
+    if not history:
+        return "Onceki konusma kaydi yok."
+    lines = []
+    for item in history[-8:]:
+        lines.append(f"[{item['kind']}] {item['content']}")
+    remembered = st.session_state.get("remembered_medications", "").strip()
+    if remembered:
+        lines.append(f"[remembered_medications] {remembered}")
+    return "\n".join(lines)
+
+
+def add_chat_history_entry(kind: str, user_input: str, assistant_output: str) -> None:
+    history = st.session_state.get("chat_history", [])
+    history.append(
+        {
+            "ts": datetime.utcnow().isoformat(),
+            "kind": kind,
+            "user_input": user_input.strip(),
+            "assistant_output": assistant_output.strip(),
+        }
+    )
+    st.session_state.chat_history = history[-10:]
+
+
+def format_chat_history_context() -> str:
+    history = st.session_state.get("chat_history", [])
+    if not history:
+        return "Onceki analiz gecmisi yok."
+    lines: list[str] = []
+    for item in history[-6:]:
+        lines.append(f"[{item['kind']}] Kullanici: {item['user_input']}")
+        lines.append(f"[{item['kind']}] Asistan: {item['assistant_output'][:240]}")
+    return "\n".join(lines)
+
+
+def build_ai_context() -> str:
+    memory_context = format_memory_context()
+    chat_context = format_chat_history_context()
+    return f"{memory_context}\n\n--- Chat History ---\n{chat_context}"
+
+
+def parse_medication_from_user_input(user_input: str) -> str:
+    text = user_input.strip()
+    if "Ilaclar=" in text:
+        med = text.split("Ilaclar=", 1)[1].split(";", 1)[0].strip()
+        return med if med else "Belirtilmedi"
+    return "Belirtilmedi"
+
+
+def parse_risk_display_from_output(raw_output: str) -> tuple[str, str]:
+    parsed = try_parse_json(raw_output) or {}
+    risk = normalize_risk(parsed.get("risk")) or normalize_risk(parsed.get("risk_level"))
+    if risk == "high":
+        return "🔴", "Yuksek"
+    if risk == "medium":
+        return "🟡", "Orta"
+    if risk == "low":
+        return "🟢", "Dusuk"
+    return "⚪", "Belirsiz"
+
+
+def extract_last_symptom_from_chat_history() -> str:
+    history = st.session_state.get("chat_history", [])
+    for item in reversed(history):
+        if item.get("kind") != "symptom_analysis":
+            continue
+        user_input = str(item.get("user_input", ""))
+        marker = "Semptomlar="
+        if marker in user_input:
+            return user_input.split(marker, 1)[1].strip()
+        return user_input.strip()
+    return ""
+
+
 def render_reminder_permission_controls() -> None:
     st.markdown("**🔔 Bildirim izni**")
     st.caption("Hatırlatıcı bildirimleri için tarayıcı bildirim izni gerekir.")
@@ -486,51 +599,41 @@ def run_due_reminders_tick() -> None:
         mark_triggered(int(reminder_id), today)
 
 
-def get_api_key() -> str | None:
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    if not api_key:
-        st.error("OPENROUTER_API_KEY bulunamadı. Lütfen .env dosyasını kontrol edin.")
-        return None
-    return api_key
-
-
-def call_openrouter(api_key: str, messages: list) -> str:
-    response = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": "openrouter/free",
-            "messages": messages,
-        },
-        timeout=60,
-    )
-    response.raise_for_status()
-    data = response.json()
-    return data["choices"][0]["message"]["content"]
-
-
-def image_to_base64(image: Image.Image) -> str:
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    return base64.b64encode(buffer.getvalue()).decode("utf-8")
-
-
-def parse_json_or_text(raw_text: str) -> str:
-    # JSON kod bloğu varsa temizle
-    cleaned = raw_text.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("```")[1]
-        if cleaned.startswith("json"):
-            cleaned = cleaned[4:]
-        cleaned = cleaned.strip()
+def extract_medication_name_with_gemini(image: Image.Image) -> str:
+    """
+    Google Gemini 1.5 Flash'ı kullanarak ilaç kutusundaki metinleri OCR yapar.
+    Sadece ticari ilaç ismini (örn: Aferin Sinüs) döndürür.
+    """
     try:
-        data = json.loads(cleaned)
-        return json.dumps(data, indent=2, ensure_ascii=False)
-    except Exception:
-        return raw_text
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            return "Tanimlanamadi"
+        
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # Resmi base64'e çevir
+        image_rgb = image.convert("RGB")
+        buffered = BytesIO()
+        image_rgb.save(buffered, format="JPEG")
+        b64_image = base64.b64encode(buffered.getvalue()).decode()
+        
+        # Gemini'ye OCR ve ilaç ismi çıkarması için iste - DETAYLI TLİMATLAR
+        prompt = """Sen uzman bir eczacı asistanısın. Görevin, yüklenen görseldeki ilaç kutusunun ticari markasını (brand name) tespit etmektir. Kutuda yazan yardımcı maddeleri (Parasetamol, Psödoefedrin vb.) değil, sadece kutunun en üstünde veya en büyük yazılan ismi döndür. Sonuç sadece ilaç ismi olmalı (Örn: 'Aferin Sinüs'), başka hiçbir açıklama yapma."""
+        
+        message = model.generate_content([
+            {"mime_type": "image/jpeg", "data": b64_image},
+            prompt
+        ])
+        
+        medication_name = message.text.strip() if message.text else "Tanimlanamadi"
+        # Sadece ilk satırı al ve temizle
+        medication_name = medication_name.split('\n')[0].strip()
+        return medication_name if medication_name and medication_name.lower() != "tanimlanamadi" else "Tanimlanamadi"
+    
+    except Exception as e:
+        st.warning(f"⚠️ Google Gemini OCR hatası: {e}")
+        return "Tanimlanamadi"
 
 
 def try_parse_json(raw_text: str) -> dict[str, Any] | None:
@@ -615,36 +718,95 @@ def build_pdf_report_bytes(
 
     draw_line("Gumus Asistan - Analiz Raporu", bold=True)
     draw_line(report_title, bold=True)
-    draw_line(f"Tarih (UTC): {created_at_iso}")
+    draw_line(f"Tarih: {created_at_iso[:19].replace('T', ' ')} (UTC)")
     if medication_name:
         draw_line(f"Ilac: {medication_name}")
-    if risk:
-        draw_line(f"Risk: {risk.upper()}")
-    draw_line("")
-    draw_line("Girdi", bold=True)
-    for part in input_summary.splitlines()[:20]:
-        draw_line(f"- {part}")
-    draw_line("")
-    draw_line("Sonuc", bold=True)
 
+    draw_line("")
+    draw_line("Risk Durumu", bold=True)
+    if risk == "high":
+        draw_line("Seviye: YUKSEK")
+    elif risk == "medium":
+        draw_line("Seviye: ORTA")
+    elif risk == "low":
+        draw_line("Seviye: DUSUK")
+    else:
+        draw_line("Seviye: Belirtilmedi")
+
+    draw_line("")
+    draw_line("Analiz Ozeti", bold=True)
+
+    # Only user-facing fields, no technical/internal keys.
+    user_facing_key_order = [
+        "summary",
+        "possible_relation",
+        "recommended_action",
+        "next_step",
+        "notes",
+        "medication_name",
+        "dosage",
+        "confidence",
+    ]
+    key_labels = {
+        "summary": "Kisa Aciklama",
+        "possible_relation": "Olasi Iliski",
+        "recommended_action": "Onerilen Adim",
+        "next_step": "Sonraki Adim",
+        "notes": "Not",
+        "medication_name": "Tanimlanan Ilac",
+        "dosage": "Dozaj",
+        "confidence": "Guven Duzeyi",
+    }
+
+    rendered_any = False
     if isinstance(data, dict) and data:
-        for k, v in data.items():
-            if k in {"risk", "risk_level"}:
+        for k in user_facing_key_order:
+            if k not in data:
                 continue
+            v = data.get(k)
+            if v in (None, "", []):
+                continue
+            rendered_any = True
             value = json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else str(v)
-            # simple wrap
+            label = key_labels.get(k, k)
             if len(value) <= 110:
-                draw_line(f"{k}: {value}")
+                draw_line(f"{label}: {value}")
             else:
-                draw_line(f"{k}:")
+                draw_line(f"{label}:")
                 for i in range(0, len(value), 110):
                     draw_line(f"  {value[i:i+110]}")
-    else:
-        for part in raw_result.splitlines()[:60]:
-            draw_line(part)
+
+    if not rendered_any:
+        draw_line("Analiz sonucu olusturuldu. Ayrintilar uygulama ekraninda gorulebilir.")
+
+    # Geçmiş Kayıtlar bölümünü ekle
+    chat_history = st.session_state.get("chat_history", [])
+    if chat_history:
+        draw_line("")
+        draw_line("Gecmis Kayitlar", bold=True)
+        draw_line("(Son analizlerin ozeti)")
+        
+        # Son 5 analizi göster
+        for idx, item in enumerate(reversed(chat_history[-5:])):
+            ts = str(item.get("ts", ""))[:19].replace("T", " ")
+            user_input = str(item.get("user_input", ""))[:100]
+            item_kind = str(item.get("kind", "")).replace("_", " ").title()
+            
+            draw_line(f"#{idx + 1} {item_kind} - {ts}")
+            draw_line(f"  Girdi: {user_input}")
+            
+            # Çıktıdan risk seviyesini çıkar
+            assistant_output = str(item.get("assistant_output", ""))
+            parsed_output = try_parse_json(assistant_output) or {}
+            item_risk = normalize_risk(parsed_output.get("risk")) or normalize_risk(parsed_output.get("risk_level"))
+            if item_risk:
+                risk_text = {"low": "DUSUK", "medium": "ORTA", "high": "YUKSEK"}.get(item_risk, "")
+                draw_line(f"  Risk: {risk_text}")
 
     draw_line("")
-    draw_line("Yasal Uyari: Bu uygulama tibbi tavsiye vermez.")
+    draw_line("Hukuki Uyari", bold=True)
+    draw_line("Bu rapor bilgilendirme amaclidir; doktor muayenesi veya tedavi onerisi yerine gecmez.")
+    draw_line("Kisisel saglik verilerinizin gizliligi KVKK kapsaminda korunmalidir.")
 
     c.showPage()
     c.save()
@@ -679,6 +841,11 @@ def render_result_card(title: str, raw_result: str, *, input_summary: str = "", 
     if pdf_bytes is None:
         st.caption("📄 PDF icin `reportlab` kurulumu gerekli. (pip install -r requirements.txt)")
     else:
+        if "download_button_index" not in st.session_state:
+            st.session_state.download_button_index = 0
+        i = st.session_state.download_button_index
+        st.session_state.download_button_index += 1
+
         safe_name = (
             title.lower()
             .replace(" ", "_")
@@ -689,11 +856,14 @@ def render_result_card(title: str, raw_result: str, *, input_summary: str = "", 
             .replace("ö", "o")
             .replace("ü", "u")
         )
+        # Dosya ismine saat bilgisi ekle (HH:MM:SS)
+        time_part = created_at_iso[11:19].replace(":", "-")
         st.download_button(
             "📄 PDF indir",
             data=pdf_bytes,
-            file_name=f"gumus_asistan_{safe_name}_{created_at_iso[:10]}.pdf",
+            file_name=f"gumus_asistan_{safe_name}_{created_at_iso[:10]}_{time_part}.pdf",
             mime="application/pdf",
+            key=f"download_{i}",
             use_container_width=True,
         )
 
@@ -732,73 +902,123 @@ def render_result_card(title: str, raw_result: str, *, input_summary: str = "", 
         st.text(raw_result)
 
 
-def identify_medication(api_key: str, image: Image.Image) -> str:
-    image_b64 = image_to_base64(image)
-    prompt = """
-Sen bir ilac kutusu tanima asistanisin.
-Sadece JSON don, baska hicbir sey yazma.
-Format:
-{
-  "medication_name": "...",
-  "dosage": "...",
-  "confidence": 0.0,
-  "notes": "...",
-  "medical_disclaimer": "Bu uygulama tibbi tavsiye vermez."
-}
-Eger emin degilsen medication_name alanina "Tanimlanamadi" yaz.
+def identify_medication(image: Image.Image) -> str:
+    """
+    Google Gemini 1.5 Flash OCR kullanarak ilaç ismini tanımlar.
+    Sadece ticari ilaç ismini döndürür (örn: Aferin Sinüs).
+    """
+    medication_name = extract_medication_name_with_gemini(image)
+    result = {
+        "medication_name": medication_name,
+        "dosage": "Bilinmiyor",
+        "confidence": 0.85 if medication_name and medication_name.lower() != "tanimlanamadi" else 0.2,
+        "notes": "Sonuc, Google Gemini 1.5 Flash OCR modelinin kutudaki metinleri okuyarak uretilmistir.",
+        "medical_disclaimer": "Bu uygulama tibbi tavsiye vermez.",
+    }
+    return json.dumps(result, ensure_ascii=False)
+
+
+def analyze_food_interaction(medications: str, foods: str, memory_context: str) -> str:
+    text = f"{medications} {foods} {memory_context}".lower()
+    if "warfarin" in text and ("ispanak" in text or "spinach" in text):
+        risk = "high"
+        summary = "Warfarin ile ispanak birlikte kullanimi dikkat gerektirir."
+        action = "Doz ve beslenme duzeni icin doktorunuza danisin."
+    elif "greyfurt" in text or "grapefruit" in text:
+        risk = "medium"
+        summary = "Greyfurt bazi ilaclarla etkilesime girebilir."
+        action = "Ilac prospektusunu kontrol edin ve eczaciya danisin."
+    else:
+        risk = "low"
+        summary = "Belirgin kritik etkilesim sinyali bulunmadi."
+        action = "Yine de profesyonel gorus almaniz onerilir."
+
+    # Onceki analizleri kontrol et
+    chat_history = st.session_state.get("chat_history", [])
+    prior_context = ""
+    if chat_history:
+        prior_context = "Önceki analizinize göre, "
+
+    result = {
+        "risk": risk,
+        "summary": f"{prior_context}{summary}" if prior_context else summary,
+        "recommended_action": action,
+        "context_used": memory_context[:500],
+        "medical_disclaimer": "Bu uygulama tibbi tavsiye vermez.",
+    }
+    return json.dumps(result, ensure_ascii=False)
+
+
+def analyze_symptoms(medications: str, symptoms: str, memory_context: str) -> str:
+    system_message = (
+        "Sen, yaslilara yardimci olan nazik, dikkatli ve guvenilir bir saglik asistanisin. "
+        "Tibbi terimleri basitce acikla, riskli durumlarda mutlaka doktora yonlendir ve "
+        "hukuki bir dille (KVKK uyarisi gibi) analizinin bir doktor tavsiyesi olmadigini belirt."
+    )
+    text = f"{medications} {symptoms} {memory_context}".lower()
+    if any(x in text for x in ["nefes", "gogus agrisi", "bayilma", "chest pain", "faint"]):
+        risk = "high"
+        relation = "Ciddi bir durum olasiligi dislanamaz."
+        next_step = "Acil saglik hizmetine basvurun."
+    elif any(x in text for x in ["bas donmesi", "halsizlik", "mide bulantisi", "dizziness", "nausea"]):
+        risk = "medium"
+        relation = "Ilac yan etkisi veya farkli bir neden ile iliskili olabilir."
+        next_step = "Kisa surede doktorunuza danisin ve semptom gunlugu tutun."
+    else:
+        risk = "low"
+        relation = "Belirgin yuksek risk sinyali yok."
+        next_step = "Semptomlar artarsa doktorunuza basvurun."
+
+    last_symptom = extract_last_symptom_from_chat_history()
+    if last_symptom:
+        follow_up_question = (
+            f"Onceki semptomunuz '{last_symptom}' idi. Bu belirtiye gore su an daha iyi misiniz, ayni mi, yoksa daha kotu mu?"
+        )
+    else:
+        follow_up_question = (
+            "Oncesinde paylastiginiz bilgilere gore, semptomlarinizda onceki duruma gore bir artis veya azalis oldu mu?"
+        )
+
+    # Onceki analizlere göre başlama mesajı
+    chat_history = st.session_state.get("chat_history", [])
+    prior_prefix = ""
+    if chat_history:
+        prior_prefix = "Önceki analizinize göre, "
+
+    risk_emoji = {"low": "🟢", "medium": "🟡", "high": "🔴"}[risk]
+    markdown_response = f"""
+### 🩺 Semptom Analizi Sonucu
+
+| Alan | Deger |
+|---|---|
+| Risk Seviyesi | {risk_emoji} **{risk.upper()}** |
+| Olasi Iliski | {prior_prefix}{relation} |
+| Onerilen Adim | {next_step} |
+
+#### 📌 Aciklama (Basit Dil)
+- Semptomlariniz ilaclarla iliskili olabilir, ancak bu sonuc kesin tani koymaz.
+- Belirtiler siddetlenirse gecikmeden saglik profesyoneline basvurun.
+
+#### ⚖️ Hukuki Uyari (KVKK)
+Bu analiz, kisinin paylastigi veriler uzerinden bilgilendirme amacli otomatik bir degerlendirmedir.  
+**Doktor muayenesi, tani veya tedavi yerine gecmez.** Kisisel saglik verilerinizin gizliligi KVKK kapsaminda korunmalidir.
+
+#### 💬 Gecmise Dayali Takip Sorusu
+{follow_up_question}
 """
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt},
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{image_b64}"},
-                },
-            ],
-        }
-    ]
-    result = call_openrouter(api_key, messages)
-    return parse_json_or_text(result)
 
-
-def analyze_food_interaction(api_key: str, medications: str, foods: str) -> str:
-    prompt = f"""
-Kullanici ilaclari: {medications}
-Kullanici gidalari: {foods}
-
-Ilac-gida etkilesimi degerlendir.
-Sadece JSON don, baska hicbir sey yazma:
-{{
-  "risk": "low|medium|high",
-  "summary": "...",
-  "recommended_action": "...",
-  "medical_disclaimer": "Bu uygulama tibbi tavsiye vermez."
-}}
-"""
-    messages = [{"role": "user", "content": prompt}]
-    result = call_openrouter(api_key, messages)
-    return parse_json_or_text(result)
-
-
-def analyze_symptoms(api_key: str, medications: str, symptoms: str) -> str:
-    prompt = f"""
-Kullanici ilaclari: {medications}
-Kullanici semptomlari: {symptoms}
-
-Kesin teshis vermeden olasi iliski analizi yap.
-Sadece JSON don, baska hicbir sey yazma:
-{{
-  "possible_relation": "...",
-  "risk_level": "low|medium|high",
-  "next_step": "...",
-  "medical_disclaimer": "Bu uygulama tibbi tavsiye vermez."
-}}
-"""
-    messages = [{"role": "user", "content": prompt}]
-    result = call_openrouter(api_key, messages)
-    return parse_json_or_text(result)
+    result = {
+        "system_message_profile": system_message,
+        "possible_relation": f"{prior_prefix}{relation}" if prior_prefix else relation,
+        "risk_level": risk,
+        "next_step": next_step,
+        "context_used": memory_context[:1000],
+        "context_chat_history_attached": "chat history" in memory_context.lower(),
+        "last_symptom_from_chat_history": last_symptom,
+        "markdown_response": markdown_response.strip(),
+        "medical_disclaimer": "Bu uygulama tibbi tavsiye vermez.",
+    }
+    return json.dumps(result, ensure_ascii=False)
 
 
 def render_history() -> None:
@@ -820,6 +1040,7 @@ def main() -> None:
     init_db()
     if not render_auth_gate():
         return
+    init_conversation_memory()
 
     st.markdown(
         """
@@ -836,10 +1057,6 @@ def main() -> None:
     # Fire due reminders on every rerun.
     run_due_reminders_tick()
 
-    api_key = get_api_key()
-    if api_key is None:
-        st.stop()
-
     tab1, tab2, tab3, tab4 = st.tabs(
         ["📸 Ilac Tanima", "🍽️ Etkilesim Kontrolu", "🩺 Semptom Takibi", "🕘 Gecmis"]
     )
@@ -848,6 +1065,14 @@ def main() -> None:
     if st.sidebar.button("🚪 Cikis Yap", use_container_width=True):
         st.session_state.logged_in = False
         st.session_state.username = ""
+        st.session_state.memory_history = []
+        st.session_state.remembered_medications = ""
+        st.session_state.active_drug = ""
+        st.session_state.current_drug = ""
+        st.session_state.shared_drug = ""
+        st.session_state.drug_source = ""
+        st.session_state.manual_drug = ""
+        st.session_state.chat_history = []
         st.rerun()
     st.sidebar.divider()
 
@@ -881,6 +1106,46 @@ def main() -> None:
                 delete_reminder(int(rid))
                 st.rerun()
 
+    remembered = st.session_state.get("remembered_medications", "").strip()
+    st.sidebar.divider()
+    st.sidebar.markdown("## 🧠 Konusma Bellegi")
+    if remembered:
+        st.sidebar.info(f"Hatirlanan ilac(lar): {remembered}")
+    else:
+        st.sidebar.caption("Henuz hatirlanan ilac bilgisi yok.")
+    if st.sidebar.button("🧹 Bellegi temizle", use_container_width=True):
+        st.session_state.memory_history = []
+        st.session_state.remembered_medications = ""
+        st.session_state.active_drug = ""
+        st.session_state.current_drug = ""
+        st.session_state.shared_drug = ""
+        st.session_state.drug_source = ""
+        st.session_state.manual_drug = ""
+        st.session_state.chat_history = []
+        st.rerun()
+
+    st.sidebar.divider()
+    st.sidebar.markdown("## 📜 Analiz Gecmisim")
+    chat_items = st.session_state.get("chat_history", [])
+    if not chat_items:
+        st.sidebar.caption("Henuz analiz gecmisi yok.")
+    else:
+        for idx, item in enumerate(reversed(chat_items[-12:])):
+            ts = str(item.get("ts", ""))[:19].replace("T", " ")
+            user_input = str(item.get("user_input", ""))
+            assistant_output = str(item.get("assistant_output", ""))
+            med = parse_medication_from_user_input(user_input)
+            risk_icon, risk_text = parse_risk_display_from_output(assistant_output)
+            st.sidebar.markdown(
+                f"**{ts}**\n\n💊 {med}\n\n{risk_icon} {risk_text}",
+                help=f"Kayıt #{idx + 1}",
+            )
+            st.sidebar.caption("---")
+
+    if st.sidebar.button("🗑️ Gecmisi Temizle", use_container_width=True):
+        st.session_state.chat_history = []
+        st.rerun()
+
     with tab1:
         st.markdown('<div class="ga-card">', unsafe_allow_html=True)
         st.subheader("📸 Fotograf ile Ilac Tanima")
@@ -888,6 +1153,20 @@ def main() -> None:
             '<div class="ga-muted">🖼️ Ilac kutusu fotografini yukleyin. Sonuc bir tahmindir ve doktor gorusunun yerine gecmez.</div>',
             unsafe_allow_html=True,
         )
+        
+        # Global ilaç giriş kutusu - SADECE Tab 1'de input, diğer tab'larda read-only gösterilecek
+        st.text_input('İlaç İsmi', value=st.session_state.get('active_drug', ''), key='main_drug_input')
+        st.session_state['manual_drug'] = st.session_state.get('main_drug_input', '').strip()
+
+        # Eğer bir değer varsa, active_drug'a ata ve tüm sekmelerde güncelle
+        if st.session_state['manual_drug']:
+            st.session_state['active_drug'] = st.session_state['manual_drug']
+            st.session_state.drug_source = 'manual'
+            st.session_state.current_drug = st.session_state['manual_drug']
+            st.session_state.shared_drug = st.session_state['manual_drug']
+            st.session_state.remembered_medications = st.session_state['manual_drug']
+            add_memory_entry("medication_manual_input", f"{st.session_state['manual_drug']}")
+        
         uploaded = st.file_uploader("🗂️ Ilac kutusu fotografi secin", type=["png", "jpg", "jpeg"])
         if uploaded:
             image = Image.open(uploaded)
@@ -895,8 +1174,30 @@ def main() -> None:
             if st.button("🔍 Ilaci Tanimla"):
                 with st.spinner("✨ Analiz ediliyor..."):
                     try:
-                        result = identify_medication(api_key, image)
+                        result = identify_medication(image)
+                        parsed = try_parse_json(result) or {}
+                        med_from_ai = str(parsed.get("medication_name", "")).strip()
+                        if med_from_ai and med_from_ai.lower() != "tanimlanamadi":
+                            # OCR başarılı oldu - Global ilaç hafızasına kaydet
+                            st.session_state['active_drug'] = med_from_ai
+                            st.session_state.drug_source = 'ocr'
+                            st.session_state.current_drug = med_from_ai
+                            st.session_state.shared_drug = med_from_ai
+                            st.session_state.remembered_medications = med_from_ai
+                            add_memory_entry("medication_from_image", f"{med_from_ai}")
+                            # Success kutusunda göster
+                            st.success(f"✅ **İlaç Başarıyla Tanımlandı!**\n\n💊 **{med_from_ai}**\n\nBu ilaç diğer sekmelerde otomatik olarak kullanılacaktır.")
+                        else:
+                            # OCR başarısız oldu
+                            if st.session_state.get('drug_source') == 'manual':
+                                # Eğer manuel giriş varsa, koru
+                                st.info("❌ Yeni görsel tanınamadı, önceki manuel giriş korundu.")
+                            else:
+                                # Manuel giriş yoksa, yukarıdaki kutuyu kullanmasını söyle
+                                st.error("❌ İlacı tanıyamadım, yukarıdaki 'İlaç İsmi' kutusuna manuel olarak yazın ve sayfayı yenileyin.")
+                        
                         save_analysis("medication-identification", uploaded.name, result)
+                        add_memory_entry("medication_identification_result", result[:400])
                         render_result_card(
                             "🧾 Ilac Tanima Sonucu",
                             result,
@@ -914,13 +1215,33 @@ def main() -> None:
             '<div class="ga-muted">🧾 Ilaclari ve gidaları yazin. Sistem risk seviyesini ve onerilen aksiyonu ozetler.</div>',
             unsafe_allow_html=True,
         )
-        medications = st.text_area("💊 Ilaclar (virgulle ayir)", "Warfarin")
+        # Active Drug'dan miras al
+        current_drug = st.session_state.get('active_drug', '')
+        if current_drug:
+            # İlaç tanımlandıysa: uyarıyı gizle, başlık olarak göster
+            st.markdown(f"#### 💊 **Seçili İlaçlar:** `{current_drug}`")
+            medications = current_drug
+        else:
+            # İlaç tanılanmadıysa: uyarı göster, kullanıcı input alabilsin
+            st.warning("💊 Lütfen önce İlaç Tanıma sekmesinde ilaç seçiniz.")
+            medications = ""
+        
+        st.session_state.remembered_medications = medications.strip()
+        
         foods = st.text_area("🥗 Gidalar (virgulle ayir)", "Ispanak")
         if st.button("🧪 Etkilesimi Analiz Et"):
             with st.spinner("✨ Analiz ediliyor..."):
                 try:
-                    result = analyze_food_interaction(api_key, medications, foods)
+                    add_memory_entry("food_query", f"Ilaclar={medications}; Gidalar={foods}")
+                    memory_context = build_ai_context()
+                    result = analyze_food_interaction(medications, foods, memory_context)
                     save_analysis("food-interaction", f"medications={medications}; foods={foods}", result)
+                    add_memory_entry("food_result", result[:500])
+                    add_chat_history_entry(
+                        "food_interaction",
+                        f"Ilaclar={medications}; Gidalar={foods}",
+                        result,
+                    )
                     render_result_card(
                         "🧾 Etkilesim Sonucu",
                         result,
@@ -938,19 +1259,46 @@ def main() -> None:
             '<div class="ga-muted">🗣️ Semptomlari ve ilac listesini girin. Cikti kesin teshis degil, yonlendirici bilgidir.</div>',
             unsafe_allow_html=True,
         )
-        current_meds = st.text_area("💊 Mevcut ilaclar", "Warfarin")
-        symptoms = st.text_area("📝 Semptomlar", "Bas donmesi, halsizlik")
+        # Active Drug'dan miras al
+        current_drug = st.session_state.get('active_drug', '')
+        if current_drug:
+            # İlaç tanımlandıysa: uyarıyı gizle, başlık olarak göster
+            st.markdown(f"#### 💊 **Seçili İlaçlar:** `{current_drug}`")
+            current_meds = current_drug
+        else:
+            # İlaç tanılanmadıysa: uyarı göster
+            st.warning("💊 Lütfen önce İlaç Tanıma sekmesinde ilaç seçiniz.")
+            current_meds = ""
+        
+        st.session_state.remembered_medications = current_meds.strip()
+        
+        if "symptom_text" not in st.session_state:
+            st.session_state.symptom_text = "Bas donmesi, halsizlik"
+
+        symptoms = st.text_area("📝 Semptomlar", key="symptom_text")
         if st.button("🧠 Semptomu Analiz Et"):
             with st.spinner("✨ Analiz ediliyor..."):
                 try:
-                    result = analyze_symptoms(api_key, current_meds, symptoms)
+                    add_memory_entry("symptom_query", f"Ilaclar={current_meds}; Semptomlar={symptoms}")
+                    memory_context = build_ai_context()
+                    result = analyze_symptoms(current_meds, symptoms, memory_context)
                     save_analysis("symptom-analysis", f"medications={current_meds}; symptoms={symptoms}", result)
+                    add_memory_entry("symptom_result", result[:500])
+                    add_chat_history_entry(
+                        "symptom_analysis",
+                        f"Ilaclar={current_meds}; Semptomlar={symptoms}",
+                        result,
+                    )
                     render_result_card(
                         "🧾 Semptom Analizi Sonucu",
                         result,
                         input_summary=f"Ilaclar: {current_meds}\nSemptomlar: {symptoms}",
                         created_at_iso=datetime.utcnow().isoformat(),
                     )
+                    parsed_symptom = try_parse_json(result) or {}
+                    md_output = str(parsed_symptom.get("markdown_response", "")).strip()
+                    if md_output:
+                        st.markdown(md_output)
                 except Exception as e:
                     st.error(f"❌ Hata: {e}")
         st.markdown("</div>", unsafe_allow_html=True)

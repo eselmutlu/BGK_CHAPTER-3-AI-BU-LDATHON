@@ -1,5 +1,8 @@
 streamlit
-google-generativeai
 pillow
 python-dotenv
 reportlab
+google-generativeai
+streamlit-mic-recorder
+SpeechRecognition
+pydub
