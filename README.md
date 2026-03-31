@@ -86,7 +86,7 @@ streamlit run app.py
 
 - **Python** — Backend
 - **Streamlit** — Arayüz
-- **OpenRouter API** — AI modeli
+- **Hugging Face API** — AI modeli
 - **SQLite** — Veritabanı
 - **n8n** — Otomasyon
 - **Streamlit Cloud** — Yayın
