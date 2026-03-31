@@ -6,6 +6,30 @@
 
 ---
 
+## 📖 Projenin Hikayesi
+
+Her ziyarette büyükannemin/büyükbabamın yanında onlarca ilaç kutusu görürdüm. Sabah bu hap, öğle o şurup, akşam başka bir tablet... Ama hiçbir zaman tam olarak hangisinin ne işe yaradığını, birbirleriyle nasıl etkileşime girdiğini ya da ıspanak yemenin kan sulandırıcıyla tehlikeli bir kombinasyon oluşturabileceğini bilmiyorlardı.
+
+Bu karmaşa sadece bizim ailemizin sorunu değil. Türkiye'de milyonlarca yaşlı birey aynı durumda. Prospektüsler teknik dille yazılmış, doktor randevuları kısa, eczacıya her şeyi sormak mümkün değil.
+
+**Gümüş Asistan** işte bu boşluğu doldurmak için doğdu. Bir hafta boyunca sıfırdan kodlamayı öğrenerek, yapay zekanın gücüyle büyükannem/büyükbabam gibi milyonlarca insanın hayatını kolaylaştırabilecek bir araç geliştirdim.
+🌟 Portfolyo Metni
+Gümüş Asistan, yaşlı bireylerin ilaç yönetimini kolaylaştırmak için geliştirdiğim yapay zeka destekli bir sağlık asistanıdır. Büyükannem her gün onlarca ilaç kullanıyor; hangisinin ne işe yaradığını, hangi yiyeceklerle tehlikeli kombinasyon oluşturduğunu bilmiyordu. Bu sorunu çözmek için harekete geçtim.
+Uygulama; ilaç kutusu fotoğrafını tanıyabiliyor, gıda-ilaç etkileşimlerini analiz ediyor, semptomlara göre uyarı veriyor. Yapay zeka sayesinde önceki sorguları hatırlıyor ve kişiselleştirilmiş yanıtlar üretiyor. İlaç hatırlatıcı, PDF rapor ve otomatik haftalık e-posta özellikleriyle tam anlamıyla akıllı bir asistan haline geldi.
+Sıfır kodlama bilgisiyle başladığım bu yolculukta Python, Streamlit, OpenRouter API ve n8n gibi araçları öğrendim. Bir hafta içinde çalışan, yayında olan ve gerçek bir sorunu çözen bir uygulama geliştirdim. Teknolojiyi insan hayatına dokunacak şekilde kullanmak mümkün — Gümüş Asistan bunun kanıtı.
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/f531aec8-1058-49af-9e78-53d2635c3961" width="800" alt="Uygulama Ana Ekranı">
+</p>
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/cbc05a0a-6a2a-4854-b8ca-4e85b5458b14" width="350" alt="Uygulama Detay Görünümü">
+</p>
+
+
+
+
+---
+
 ## 🎯 Problem
 
 Polifarmasi — yani birden fazla ilaç kullanımı — yaşlı bireyler için ciddi bir risk oluşturuyor:
