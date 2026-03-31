@@ -3,6 +3,7 @@
 > Yaşlı bireylerin ilaç karmaşasını çözen, AI destekli kişisel sağlık asistanı.
 
 🔗 **Canlı Demo:** [Uygulamayı Aç](https://bgkchapter-3-ai-bu-ldathon-ezawsed2kp5wmeylmrapa4.streamlit.app/)
+🎬 **Demo Video:** [İzlemek için tıkla](https://www.loom.com/share/de883d872ec649aab13de9e4a4c8d337)
 
 ---
 
