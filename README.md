@@ -1,44 +1,77 @@
-# Gümüş Asistan
+# 💊 Gümüş Asistan — Akıllı İlaç & Yan Etki Yönetimi
 
-Gümüş Asistan, yaşlı bireyler ve kronik hastalar için geliştirilen yapay zeka destekli bir sağlık yardımcı uygulamasıdır.  
-Streamlit tabanlı arayüz ile ilaç tanıma, gıda-ilaç etkileşim analizi, semptom değerlendirmesi ve ilaç hatırlatıcı yönetimi sağlar.
+> Yaşlı bireylerin ilaç karmaşasını çözen, AI destekli kişisel sağlık asistanı.
 
-## Kurulum
+🔗 **Canlı Demo:** [Uygulamayı Aç](https://bgkchapter-3-ai-bu-ldathon-ezawsed2kp5wmeylmrapa4.streamlit.app/)
 
-1. Proje klasörüne geçin.
-2. Gerekli paketleri yükleyin:
+---
+
+## 🎯 Problem
+
+Polifarmasi — yani birden fazla ilaç kullanımı — yaşlı bireyler için ciddi bir risk oluşturuyor:
+
+- İlaçların birbirleriyle olan **gizli etkileşimleri** bilinmiyor
+- Günlük gıdaların (greyfurt, süt, ıspanak) ilaçlarla **tehlikeli kombinasyonlar** oluşturabileceği fark edilmiyor
+- Prospektüsler **teknik dil** nedeniyle anlaşılamıyor
+
+## 💡 Çözüm
+
+Gümüş Asistan, yapay zeka kullanarak bu sorunları basit ve anlaşılır bir arayüzle çözüyor.
+
+---
+
+## ✨ Özellikler
+
+| Özellik | Açıklama |
+|---|---|
+| 📸 İlaç Tanıma | İlaç kutusu fotoğrafı yükle, AI tanımlasın |
+| 🥗 Gıda-İlaç Etkileşimi | Hangi yiyeceklerin ilaçlarla tehlikeli olduğunu öğren |
+| 🩺 Semptom Takibi | Semptomların ilaçlarla ilişkisini analiz et |
+| 🧠 Konuşma Belleği | AI önceki sorgularını hatırlıyor |
+| ⏰ İlaç Hatırlatıcı | İlaç saatlerini kaydet, unutma |
+| 📄 PDF Rapor | Analiz sonuçlarını PDF olarak indir |
+| 🔐 Kullanıcı Girişi | Kişisel verilerin güvende |
+| 📧 Haftalık Rapor | n8n ile otomatik e-posta otomasyonu |
+
+---
+
+## 🚀 Kurulum
 
 ```bash
+# Repoyu klonla
+git clone https://github.com/eselmutlu/BGK_CHAPTER-3-AI-BU-LDATHON.git
+
+# Klasöre gir
+cd BGK_CHAPTER-3-AI-BU-LDATHON
+
+# Paketleri yükle
 pip install -r requirements.txt
-```
 
-## Çalıştırma
+# .env dosyası oluştur
+cp .env.example .env
+# .env dosyasına OPENROUTER_API_KEY ekle
 
-Uygulamayı başlatmak için:
-
-```bash
+# Uygulamayı başlat
 streamlit run app.py
 ```
 
-## Özellikler
+---
 
-- Kullanıcı adı/şifre ile giriş sistemi (SQLite üzerinde saklama)
-- Fotoğraf ile ilaç tanıma (AI destekli analiz)
-- Gıda-ilaç etkileşim kontrolü ve risk seviyesi (yeşil/sarı/kırmızı)
-- Semptom analizi (kesin teşhis vermeyen yönlendirici çıktı)
-- Sonuçları düzenli kartlarda görüntüleme
-- PDF rapor indirme (tarih, ilaç bilgisi, analiz çıktısı)
-- İlaç hatırlatıcı ekleme, listeleme ve silme
-- Tarayıcı bildirimi ile hatırlatma (izin gerekli)
+## 🛠️ Teknolojiler
 
-## Ekran Görüntüsü
+- **Python** — Backend
+- **Streamlit** — Arayüz
+- **OpenRouter API** — AI modeli
+- **SQLite** — Veritabanı
+- **n8n** — Otomasyon
+- **Streamlit Cloud** — Yayın
 
-Bu bölüme uygulama ekran görüntülerini ekleyebilirsiniz:
+---
 
-- Giriş ekranı
-- Ana analiz ekranı
-- Hatırlatıcı paneli
-- PDF rapor çıktısı örneği
+## 👩‍💻 Geliştirici
 
-> Örnek kullanım:
-> `screenshots/login.png`, `screenshots/dashboard.png`
+**Esel Mutlu** — BGK Chapter 3 AI Buildathon
+
+---
+
+*Bu uygulama tıbbi tavsiye vermez. Sağlık kararları için mutlaka bir doktora danışın.*
